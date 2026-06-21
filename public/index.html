@@ -88,9 +88,23 @@
                     const EXTERNAL_HOST = 'https://rezleo16.github.io/browser';
                     const externalUrl = `${EXTERNAL_HOST}/index.html?token=${data.session_token}`;
                     
-                    window.Telegram.WebApp.openLink(externalUrl);
+                    // Open the link in the external browser
+                    window.Telegram.WebApp.openLink(externalUrl, { try_instant_view: false });
                     
-                    setTimeout(() => window.Telegram.WebApp.close(), 1500);
+                    // Provide a fallback button in case the OS/Telegram blocks the automatic redirect
+                    document.body.innerHTML = `
+                        <div style="margin-top: 20px;">
+                            <h2>Verification Ready</h2>
+                            <p>If your browser didn't open automatically, click below:</p>
+                            <button onclick="window.Telegram.WebApp.openLink('${externalUrl}')" 
+                                    style="padding: 12px 24px; background: #3390ec; color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; margin-top: 10px;">
+                                Open Browser
+                            </button>
+                        </div>
+                    `;
+                    
+                    // We REMOVED the setTimeout auto-close because on Android/iOS, closing 
+                    // the Mini App too fast can kill the system intent to open the browser!
                 } else {
                     document.body.innerHTML = '<h2>Error</h2><p>Could not initialize session.</p>';
                 }
