@@ -18,27 +18,21 @@ const redis = new Redis({
   token: process.env.UPSTASH_REDIS_REST_TOKEN,
 });
 
-/**
- * 1. Initiate a session
- * Developer backend calls this when a new user joins their bot.
- */
 app.post('/api/session/init', async (req, res) => {
+  // Now called by the Mini App (index.html) directly
   const { user_id, bot_id } = req.body;
   if (!user_id || !bot_id) {
     return res.status(400).json({ error: 'Missing user_id or bot_id' });
   }
 
   try {
-    // Generate a random session token
     const token = crypto.randomBytes(16).toString('hex');
     
-    // Save to Redis: session:<token> -> { user_id, bot_id, status: 'pending' }
-    // Expires in 300 seconds (5 minutes)
-    await redis.set(`session:${token}`, {
-      user_id,
-      bot_id,
-      status: 'pending'
-    }, { ex: 300 });
+    // Save the token mapping
+    await redis.set(`session:${token}`, { user_id, bot_id }, { ex: 300 });
+    
+    // Set the initial status for the bot to poll
+    await redis.set(`status:${bot_id}:${user_id}`, 'pending', { ex: 600 });
 
     res.json({ status: 'success', session_token: token });
   } catch (error) {
@@ -47,33 +41,26 @@ app.post('/api/session/init', async (req, res) => {
   }
 });
 
-/**
- * 2. Status polling (Ping)
- * Developer backend polls this to see if the user has completed verification.
- */
 app.get('/api/session/status', async (req, res) => {
-  const token = req.query.token;
-  if (!token) {
-    return res.status(400).json({ error: 'Missing session token' });
+  // Polled by the Developer Bot
+  const { user_id, bot_id } = req.query;
+  if (!user_id || !bot_id) {
+    return res.status(400).json({ error: 'Missing user_id or bot_id' });
   }
 
   try {
-    const session = await redis.get(`session:${token}`);
-    if (!session) {
+    const status = await redis.get(`status:${bot_id}:${user_id}`);
+    if (!status) {
       return res.json({ status: 'expired_or_not_found' });
     }
 
-    res.json({ status: session.status });
+    res.json({ status });
   } catch (error) {
     console.error('Redis error:', error);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
 
-/**
- * 3. Evaluate Fingerprint
- * External browser calls this to submit the device hash.
- */
 app.post('/api/session/evaluate', async (req, res) => {
   const { token, device_hash } = req.body;
   if (!token || !device_hash) {
@@ -81,35 +68,30 @@ app.post('/api/session/evaluate', async (req, res) => {
   }
 
   try {
-    // 1. Get the session
     const session = await redis.get(`session:${token}`);
     if (!session) {
       return res.status(400).json({ error: 'Session expired or invalid' });
     }
 
-    if (session.status !== 'pending') {
+    const { user_id, bot_id } = session;
+    const currentStatus = await redis.get(`status:${bot_id}:${user_id}`);
+    
+    if (currentStatus !== 'pending') {
       return res.status(400).json({ error: 'Session already processed' });
     }
 
-    const { user_id, bot_id } = session;
-
-    // 2. Check if this device hash already exists for this specific bot
+    // Check if device hash already exists for this bot
     const existingUserId = await redis.get(`device:${bot_id}:${device_hash}`);
 
     if (existingUserId && String(existingUserId) !== String(user_id)) {
-      // FRAUD DETECTED: Device used by a different user for this bot!
-      session.status = 'rejected';
-      await redis.set(`session:${token}`, session, { ex: 300 }); // update session
+      // FRAUD DETECTED
+      await redis.set(`status:${bot_id}:${user_id}`, 'rejected', { ex: 300 });
       return res.json({ status: 'rejected', reason: 'Device already registered to another user' });
     }
 
-    // 3. SUCCESS: New device for this bot, or same user verifying again.
-    // Save the device hash -> user_id mapping permanently (or for a long time)
+    // SUCCESS
     await redis.set(`device:${bot_id}:${device_hash}`, user_id);
-    
-    // Update session status
-    session.status = 'verified';
-    await redis.set(`session:${token}`, session, { ex: 300 });
+    await redis.set(`status:${bot_id}:${user_id}`, 'verified', { ex: 300 });
 
     res.json({ status: 'verified' });
 

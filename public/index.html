@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -19,8 +20,9 @@
             margin: 0;
             text-align: center;
         }
+
         .spinner {
-            border: 4px solid rgba(0,0,0,0.1);
+            border: 4px solid rgba(0, 0, 0, 0.1);
             width: 40px;
             height: 40px;
             border-radius: 50%;
@@ -28,9 +30,19 @@
             animation: spin 1s linear infinite;
             margin-bottom: 20px;
         }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
     </style>
 </head>
+
 <body>
     <div class="spinner"></div>
     <h2>Preparing Verification...</h2>
@@ -43,29 +55,50 @@
         // Expand the web app to full height
         window.Telegram.WebApp.expand();
 
-        setTimeout(() => {
-            // Get the session token from the startapp parameter
-            // The bot URL should be t.me/YourBot/App?startapp=TOKEN_ABC123
-            const token = window.Telegram.WebApp.initDataUnsafe.start_param;
-
-            if (!token) {
-                document.body.innerHTML = '<h2>Error</h2><p>No verification token found. Please use the button provided by the bot.</p>';
+        // In a real production app, the backend should cryptographically validate Telegram.WebApp.initData 
+        // to prevent spoofing. For this architecture, we will extract the ID and call the API.
+        const initDataUnsafe = window.Telegram.WebApp.initDataUnsafe;
+        
+        // Wait briefly for UI to render
+        setTimeout(async () => {
+            if (!initDataUnsafe || !initDataUnsafe.user) {
+                document.body.innerHTML = '<h2>Error</h2><p>Please open this inside Telegram.</p>';
                 return;
             }
 
-            // IMPORTANT: Replace this with the URL where your external browser.html is hosted!
-            const EXTERNAL_HOST = 'https://your-external-site.com';
-            const externalUrl = `${EXTERNAL_HOST}/browser.html?token=${token}`;
-
-            // Force open the link in the external, native browser (Safari/Chrome)
-            window.Telegram.WebApp.openLink(externalUrl);
+            const userId = initDataUnsafe.user.id;
             
-            // Optionally close the Mini App right after
-            setTimeout(() => {
-                window.Telegram.WebApp.close();
-            }, 1500);
+            // To make this a true SaaS, other developers will set their BotFather WebApp URL to:
+            // https://device-sooty.vercel.app/index.html?bot_id=THEIR_BOT_ID
+            const urlParams = new URLSearchParams(window.location.search);
+            const botId = urlParams.get('bot_id') || '8617089736'; // Fallback to your test bot ID
+            
+            try {
+                // Call our own backend API to generate a secure session
+                const response = await fetch('/api/session/init', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_id: userId, bot_id: botId })
+                });
 
-        }, 1000); // 1-second delay just to show the UI smoothly
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    // Redirect to the external Fingerprinting site with the secure token
+                    const EXTERNAL_HOST = 'https://rezleo16.github.io/browser';
+                    const externalUrl = `${EXTERNAL_HOST}/index.html?token=${data.session_token}`;
+                    
+                    window.Telegram.WebApp.openLink(externalUrl);
+                    
+                    setTimeout(() => window.Telegram.WebApp.close(), 1500);
+                } else {
+                    document.body.innerHTML = '<h2>Error</h2><p>Could not initialize session.</p>';
+                }
+            } catch (err) {
+                document.body.innerHTML = '<h2>Network Error</h2><p>Backend unreachable.</p>';
+            }
+        }, 1000);
     </script>
 </body>
+
 </html>
