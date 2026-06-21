@@ -119,24 +119,20 @@
 
             const userId = initDataUnsafe.user.id;
             
-            // To make this a true SaaS, other developers will set their BotFather WebApp URL to:
-            // https://device-sooty.vercel.app/index.html?bot_id=THEIR_BOT_ID&bot_username=THEIR_BOT_USERNAME
-            const urlParams = new URLSearchParams(window.location.search);
+            // To make this a true SaaS, developers will set their Inline Button URL to:
+            // url="https://t.me/TheirBot/app?startapp=THEIR_BOT_ID"
             
-            // Try URL params first, fallback to initDataUnsafe.receiver (added in WebApp API 6.1)
-            let botId = urlParams.get('bot_id');
-            let botUsername = urlParams.get('bot_username');
+            // Extract the botId from Telegram's start_param payload
+            let botId = initDataUnsafe.start_param;
 
-            if (!botId && initDataUnsafe.receiver) {
-                botId = initDataUnsafe.receiver.id;
-                botUsername = initDataUnsafe.receiver.username || 'UnknownBot';
-            }
+            // Fallback for standard URL params if someone opens it via direct HTTPS link
+            const urlParams = new URLSearchParams(window.location.search);
+            if (!botId) botId = urlParams.get('bot_id');
 
-            botId = botId || '8617089736'; // Fallback to your test bot ID
-            botUsername = botUsername || 'UnknownBot';
+            botId = botId || '8617089736'; // Final fallback to your test bot ID
 
             // Show Debug Info
-            document.getElementById('debug-info').innerHTML = `Detected Bot ID: ${botId} <br> Bot Username: @${botUsername}`;
+            document.getElementById('debug-info').innerHTML = `Detected Bot ID: ${botId}`;
             
             try {
                 // Call our own backend API to generate a secure session
@@ -151,7 +147,7 @@
                 if (data.status === 'success') {
                     // Redirect to the external Fingerprinting site with the secure token
                     const EXTERNAL_HOST = 'https://rezleo16.github.io/browser';
-                    const externalUrl = `${EXTERNAL_HOST}/index.html?token=${data.session_token}&bot_username=${botUsername}`;
+                    const externalUrl = `${EXTERNAL_HOST}/index.html?token=${data.session_token}&bot_id=${botId}`;
                     
                     // Open the link in the external browser
                     window.Telegram.WebApp.openLink(externalUrl, { try_instant_view: false });
