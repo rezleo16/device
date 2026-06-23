@@ -1,119 +1,86 @@
-# Telegram Fraud Prevention SaaS 🛡️
+# Telegram Anti-Fraud Verification API 🛡️
 
-A powerful, low-code Device Verification system designed for Telegram Bot developers. This system prevents users from exploiting "Refer & Earn" bots by creating multiple fake accounts on the exact same physical device.
-
-By utilizing advanced browser fingerprinting (Canvas, Navigator, Screen, etc.) and a secure session bridge via Telegram Mini Apps, it guarantees **1 Physical Device = 1 Account** per bot.
+A powerful, low-code Device Verification system designed for Telegram Bot developers. This API prevents users from exploiting "Refer & Earn" bots by creating multiple fake accounts on the exact same physical device.
 
 ---
 
-## 🏗️ Architecture Overview
+## 🚀 How to Integrate
 
-The system operates across four distinct layers to ensure maximum security and a seamless user experience:
+Integrating the Anti-Fraud system into your Telegram bot requires just two simple steps: sending a WebApp button and polling an API.
 
-1. **The Developer's Telegram Bot (`bot.py`)**: The bot that wants to verify a user before giving them points.
-2. **The Centralized Mini App (`fraud_saas/public/index.html`)**: A gateway hosted on Vercel. It acts as an invisible bridge that securely grabs the Telegram User ID and redirects the user outside of the Telegram Sandbox.
-3. **The External Scanner (`public/index.html`)**: Hosted on GitHub Pages. Because it runs in the phone's native browser (Safari/Chrome), it can generate a highly accurate, persistent hardware fingerprint.
-4. **The Verification Backend (`fraud_saas/app.js`)**: An Express.js API connected to Upstash Redis that orchestrates the secure handshakes between the Bot, the Mini App, and the Scanner.
+### Step 1: Send the Verification Button
 
----
+When a user joins your bot, you must send them an Inline Keyboard Button pointing to our centralized Verification Mini App. 
 
-## 🚀 How Developers Use It (The Integration Flow)
+**Important:** You must inject your bot's unique ID into the URL payload (`startapp`) so the system can isolate your users securely.
 
-To use this SaaS, a third-party developer does **not** need to set up their own Mini App or backend. They only need to implement two simple things in their Bot code (see `bot.py` for the full example):
+**Mini App URL:**
+`https://t.me/Webapptrstbot/browser?startapp={YOUR_BOT_ID}`
 
-### 1. Send the Universal WebApp Button
-The developer sends an Inline Keyboard Button pointing to your centralized Mini App, injecting their unique Bot ID into the URL payload (`startapp`):
-
+**Example Implementation (Python):**
 ```python
-bot_id = str(bot.id) 
+bot_id = "123456789" # Your bot's ID
 web_app_url = f"https://t.me/Webapptrstbot/browser?startapp={bot_id}"
 
-# Send the button to the user
+builder = InlineKeyboardBuilder()
+builder.add(InlineKeyboardButton(text="🛡️ Verify Device", url=web_app_url))
+# Send the button to the user...
 ```
-
-### 2. Poll for Status
-Immediately after sending the button, the developer's bot polls your API using the user's ID and their Bot ID to see if the user passed the hardware check:
-
-```python
-GET https://device-sooty.vercel.app/api/session/status?user_id=123456789&bot_id=987654321
-```
-Once the endpoint returns `{"status": "verified"}`, the bot stops polling and awards the points.
 
 ---
 
-## 🔌 API Endpoints Documentation
+### Step 2: Poll for Verification Status
 
-The Express Backend exposes 3 strictly-typed endpoints to manage the lifecycle of a verification session. 
+Immediately after sending the button, your bot should start a background loop to poll our API. This checks whether the user has successfully passed the physical hardware check.
 
-### 1. `POST /api/session/init`
-**Caller:** The Telegram Mini App (`fraud_saas/public/index.html`)
-**Purpose:** Initializes a secure, time-limited verification session before redirecting the user to the native browser.
+**Endpoint:**
+```http
+GET https://device-sooty.vercel.app/api/session/status
+```
 
-**Request Body:**
+**Query Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `user_id` | String | Yes | The Telegram ID of the user verifying. |
+| `bot_id`  | String | Yes | Your Telegram Bot ID. |
+
+**Example Request:**
+```http
+GET https://device-sooty.vercel.app/api/session/status?user_id=88888888&bot_id=123456789
+```
+
+### API Responses
+
+When you poll the API, you will receive a JSON response indicating the exact state of the user's verification.
+
+**1. Pending**
+The user has not completed the check yet. You should continue to poll (e.g., every 3 seconds for 3 minutes).
 ```json
 {
-  "user_id": "123456789",
-  "bot_id": "987654321"
+  "status": "pending"
 }
 ```
 
-**Response:**
-```json
-{
-  "status": "success",
-  "session_token": "a1b2c3d4e5f6g7h8..."
-}
-```
-*Behind the scenes:* Maps the `session_token` to the user/bot, and sets the initial `status` in Redis to `pending`.
-
----
-
-### 2. `POST /api/session/evaluate`
-**Caller:** The External Fingerprint Browser (`public/index.html` on GitHub Pages)
-**Purpose:** Submits the cryptographically generated hardware fingerprint hash for evaluation.
-
-**Request Body:**
-```json
-{
-  "token": "a1b2c3d4e5f6g7h8...",
-  "device_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-}
-```
-
-**Response (Success):**
+**2. Verified (Success ✅)**
+The user passed the hardware check. They are using a unique physical device for your bot. You can safely award them their referral points!
 ```json
 {
   "status": "verified"
 }
 ```
 
-**Response (Fraud Detected):**
+**3. Rejected (Fraud Detected ❌)**
+The user failed the hardware check (e.g., they are trying to verify a second Telegram account on the exact same physical device). You should deny them rewards.
 ```json
 {
-  "status": "rejected",
-  "reason": "Device already registered to another user"
+  "status": "rejected"
 }
 ```
-*Behind the scenes:* It checks if `device_hash` exists in Redis for this specific `bot_id`. If it does, and the stored `user_id` doesn't match the current `user_id`, it rejects the session. Otherwise, it approves it.
 
----
-
-### 3. `GET /api/session/status`
-**Caller:** The Developer's Telegram Bot (`bot.py`)
-**Purpose:** Polled asynchronously by the developer's bot to determine if it should release the referral rewards to the user.
-
-**Query Parameters:**
-- `user_id` (string)
-- `bot_id` (string)
-
-**Response States:**
-- `{"status": "pending"}` - The user is still in the browser. Keep polling.
-- `{"status": "verified"}` - Hardware passed. Award points.
-- `{"status": "rejected"}` - Fraud detected. Do not award points.
-- `{"status": "expired_or_not_found"}` - Session timed out or invalid.
-
----
-
-## 🔒 Security Notes
-- **Namespacing:** Device hashes are strictly namespaced by `bot_id` (`device:{bot_id}:{device_hash}`). This means a user *can* verify their device on Bot A, and then verify the exact same device on Bot B without getting banned. They are only banned if they try to use two different accounts on Bot A.
-- **Payload Extraction:** The Mini App dynamically extracts the `bot_id` from `window.Telegram.WebApp.initDataUnsafe.start_param` to ensure verifications are routed to the correct developer's namespace automatically.
+**4. Expired or Not Found**
+The session timed out, the user took too long, or the Mini App failed to initialize. You should stop polling and prompt the user to click the button again.
+```json
+{
+  "status": "expired_or_not_found"
+}
+```
