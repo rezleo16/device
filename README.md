@@ -33,6 +33,44 @@ builder.add(InlineKeyboardButton(text="🛡️ Verify Device", url=web_app_url))
 
 Immediately after sending the button, your bot should start a background loop to poll our API. This checks whether the user has successfully passed the physical hardware check.
 
+---
+
+## 🔌 API Endpoints Reference
+
+### 1. Initialize Session
+*(Note: If you use the Mini App URL provided in Step 1, the Mini App automatically calls this endpoint for you. You only need to call this manually if you are building a custom integration without our Mini App).*
+
+**Endpoint:**
+```http
+POST https://device-sooty.vercel.app/api/session/init
+```
+
+**Request Body (JSON):**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `user_id` | String | Yes | The Telegram ID of the user verifying. |
+| `bot_id`  | String | Yes | Your Telegram Bot ID. |
+
+**Example Request:**
+```json
+{
+  "user_id": "88888888",
+  "bot_id": "123456789"
+}
+```
+
+**Response (Success):**
+```json
+{
+  "status": "success",
+  "session_token": "a1b2c3d4e5f6g7h8..."
+}
+```
+
+---
+
+### 2. Check Verification Status
+
 **Endpoint:**
 ```http
 GET https://device-sooty.vercel.app/api/session/status
