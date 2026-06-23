@@ -83,10 +83,16 @@ app.post('/api/session/evaluate', async (req, res) => {
     // Check if device hash already exists for this bot
     const existingUserId = await redis.get(`device:${bot_id}:${device_hash}`);
 
-    if (existingUserId && String(existingUserId) !== String(user_id)) {
-      // FRAUD DETECTED
-      await redis.set(`status:${bot_id}:${user_id}`, 'rejected', { ex: 300 });
-      return res.json({ status: 'rejected', reason: 'Device already registered to another user' });
+    if (existingUserId) {
+      if (String(existingUserId) === String(user_id)) {
+        // FRAUD DETECTED: User is trying to verify again to get double points
+        await redis.set(`status:${bot_id}:${user_id}`, 'rejected', { ex: 300 });
+        return res.json({ status: 'rejected', reason: 'You have already verified this account.' });
+      } else {
+        // FRAUD DETECTED: Different user on the same physical device
+        await redis.set(`status:${bot_id}:${user_id}`, 'rejected', { ex: 300 });
+        return res.json({ status: 'rejected', reason: 'Device already registered to another user.' });
+      }
     }
 
     // SUCCESS
